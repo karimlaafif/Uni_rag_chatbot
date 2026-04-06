@@ -1,0 +1,75 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{float}
+
+\title{
+    \vspace{2cm}
+    \textbf{\huge University Multimodal RAG Chatbot} \\
+    \vspace{0.5cm}
+    \large \textit{Project Specifications \& Technical Documentation}
+}
+\author{Lead AI Engineer}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\newpage
+\tableofcontents
+\newpage
+
+\section{Executive Summary}
+This document outlines the detailed architecture, pipeline mechanisms, and deployment instructions for the University Multimodal Retrieval-Augmented Generation (RAG) Chatbot. The system integrates advanced Large Language Models (LLMs), dense vector quantization, real-time embeddings, and multimodal parsing pipelines to serve diverse knowledge-based inquiries.
+
+\section{System Architecture}
+The system revolves around a loosely coupled microservice architecture containerized via Docker.
+\begin{itemize}
+    \item \textbf{API Gateway:} FastAPI asynchronous REST server handling stateless requests.
+    \item \textbf{Vector Store:} Qdrant vector database managing separated semantic and visual spaces.
+    \item \textbf{Memory Store:} Redis cache handling conversation histories (up to $k=10$ turns).
+    \item \textbf{Model Engine:} Abstracted LLM factory utilizing local Ollama deployments or fallback cloud endpoints.
+\end{itemize}
+
+\section{Data Pipeline \& Ingestion}
+The \texttt{data\_pipeline} module supports hybrid format parsing:
+\begin{itemize}
+    \item \textbf{Text Formats:} PDF (via PyMuPDF), Word Documents, and textual content dynamically fetched and cleaned from URLs.
+    \item \textbf{Images:} Visual data pushed through CLIP (\textit{ViT-B-32}) models to produce 512-dimension image vectors, aligned with textual concepts.
+    \item \textbf{Delta Sync Strategy:} Content is hashed (SHA-256). Newly observed documents bypass redundant computation; updates are injected directly into Qdrant nodes preventing the need for LLM fine-tuning.
+    \item \textbf{Chunker:} Implements semantic boundary strategies fallback to overlapping logical splitters (size 512, overlap 64) for precise retrieval units.
+\end{itemize}
+
+\section{RAG Pipeline Mechanisms}
+Retrieval is fully abstract and contextually aware:
+\begin{enumerate}
+    \item \textbf{Dense Fetching:} Produces similarity candidates using \texttt{nomic-embed-text} for textual queries, and \texttt{CLIP} for image inputs.
+    \item \textbf{Reranking Phase:} Initial retrieved limits are re-scored against the specific prompt using a Cross-Encoder (\texttt{ms-marco-MiniLM-L-6-v2}) validating lexical and semantic correlations.
+    \item \textbf{Augmented Generation:} Processed context injections limit LLM boundaries to factual constraints, enforcing verifiable source citations.
+\end{enumerate}
+
+\section{Benchmark Capabilities}
+A built-in benchmark harness utilizes logic inspired by RAGAS. The framework evaluates simulated conversational traces across:
+\begin{itemize}
+    \item Context Precision \& Context Recall
+    \item Answer Relevancy \& Faithfulness
+\end{itemize}
+Combined weighted output informs developers regarding alignment drift among local models (\texttt{Mistral}, \texttt{Llama 3.1}) or cloud variants (\texttt{GPT-4o}).
+
+\section{Deployment \& Supervisor Management}
+To ensure robust scalability on supervisor networks, deployment occurs strictly through exported Docker imagery. 
+\begin{itemize}
+    \item Build processes create isolated tarballs representing the application state via automated deployment scripts.
+    \item Supervisor nodes leverage loading scripts to hydrate local Docker environments detached from public network delays.
+    \item Environments can be seamlessly synchronized across production limits enforcing robustness safely offline.
+\end{itemize}
+
+\end{document}

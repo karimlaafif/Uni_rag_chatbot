@@ -1,0 +1,11 @@
+.env
+__pycache__
+*.pyc
+.git
+deployment/
+docs/
+qdrant_data/
+ollama_data/
+redis_data/
+benchmark_results.csv
+benchmark_results.html
