@@ -14,16 +14,19 @@ from sqlalchemy import create_engine, text
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from data_pipeline.semantic_chunker import SemanticChunker
 
 class DataIngestionPipeline:
     def __init__(self, qdrant_manager=None):
         self.qdrant_manager = qdrant_manager
-        
-        # Semantic Chunker approximation since `SemanticChunker` is experimental and might differ
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=512,
-            chunk_overlap=64,
-            length_function=len,
+
+        self.text_splitter = SemanticChunker(
+            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            breakpoint_percentile=70.0,   # cut at the 30% lowest-similarity transitions
+            max_chunk_chars=1500,          # hard ceiling per chunk
+            min_chunk_chars=200,           # discard/merge chunks smaller than this
+            fallback_chunk_size=512,       # fallback splitter params (unchanged)
+            fallback_overlap=64,
         )
         
         # Load CLIP for images
@@ -75,23 +78,21 @@ class DataIngestionPipeline:
         try:
             content = self.clean_text(content)
             content_hash = self._hash_content(content)
-            
+
+            # Skip documents already in the vector store (delta-sync)
             if self.qdrant_manager and self.qdrant_manager.hash_exists(content_hash):
                 return []
-                
+
             metadata['content_hash'] = content_hash
             metadata['timestamp'] = datetime.utcnow().isoformat()
-            
-            docs = self.text_splitter.create_documents([content])
-            filtered_docs = []
-            for i, d in enumerate(docs):
-                # Approximation of 80 tokens (around 60-80 words max, >300 chars usually)
-                if len(d.page_content) >= 300: 
-                    d.metadata.update(metadata)
-                    d.metadata['chunk_index'] = i
-                    filtered_docs.append(d)
-                
-            return filtered_docs
+
+            # SemanticChunker.create_documents already:
+            #   - splits on meaning boundaries
+            #   - adds chunk_index, chunk_total, chunk_preview to metadata
+            #   - filters chunks smaller than min_chunk_chars internally
+            docs = self.text_splitter.create_documents(content, metadata=metadata)
+
+            return docs
         except Exception as e:
             self.log_error(metadata.get('source', 'unknown_source'), "process_document", str(e))
             return []
