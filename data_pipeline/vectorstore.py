@@ -1,13 +1,13 @@
 import uuid
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, PointStruct,
     SparseVectorParams, SparseIndexParams, SparseVector,
     Prefetch, FusionQuery, Fusion,
-    Filter, FieldCondition, MatchValue,
+    Filter, FieldCondition, MatchValue, MatchAny,
 )
 from fastembed import SparseTextEmbedding
 from langchain_core.documents import Document
@@ -22,6 +22,17 @@ logger = logging.getLogger(__name__)
 DENSE_VECTOR  = "text"        # 768 dims, nomic-embed-text
 SPARSE_VECTOR = "text_sparse" # BM25 via fastembed, dimensions creuses
 IMAGE_VECTOR  = "image"       # 512 dims, CLIP ViT-B-32
+
+# Hiérarchie d'accès : chaque rôle voit ses niveaux + tous les niveaux inférieurs.
+# Les documents sont indexés avec un champ "access_level" dans leur payload.
+# Valeurs possibles : "public" | "student" | "staff" | "admin"
+ACCESS_LEVEL_MAP: Dict[str, List[str]] = {
+    "student": ["public", "student"],
+    "staff":   ["public", "student", "staff"],
+    "admin":   ["public", "student", "staff", "admin"],
+    # Fallback si le rôle est inconnu → accès public uniquement
+    "public":  ["public"],
+}
 
 
 class QdrantManager:
@@ -66,6 +77,37 @@ class QdrantManager:
             )
             for r in raw
         ]
+
+    def _build_access_filter(self, user_role: str) -> Filter:
+        """
+        Construit un filtre Qdrant qui restreint les résultats aux documents
+        accessibles par ce rôle.
+
+        Logique hiérarchique :
+          student → voit "public" + "student"
+          staff   → voit "public" + "student" + "staff"
+          admin   → voit tout
+
+        Si un document n'a pas de champ "access_level" dans son payload,
+        il est considéré public (aucune restriction ne s'applique à lui).
+        Le filtre utilise MatchAny pour supporter plusieurs valeurs en une
+        seule condition, ce qui est plus efficace qu'un OU chainé.
+        """
+        allowed_levels = ACCESS_LEVEL_MAP.get(user_role, ACCESS_LEVEL_MAP["public"])
+        return Filter(
+            should=[
+                # Document explicitement marqué avec un niveau autorisé
+                FieldCondition(
+                    key="access_level",
+                    match=MatchAny(any=allowed_levels),
+                ),
+                # Document sans champ access_level → traité comme public
+                FieldCondition(
+                    key="access_level",
+                    match=MatchValue(value=None),
+                ),
+            ]
+        )
 
     # ── Gestion de la collection ─────────────────────────────────────────────
 
@@ -183,7 +225,12 @@ class QdrantManager:
 
     # ── Recherche hybride ────────────────────────────────────────────────────
 
-    def hybrid_search(self, query: str, top_k: int = 10) -> List[Document]:
+    def hybrid_search(
+        self,
+        query: str,
+        top_k: int = 10,
+        user_role: str = "public",
+    ) -> List[Document]:
         """
         Recherche hybride en deux temps :
 
@@ -191,16 +238,27 @@ class QdrantManager:
            - Dense search  : similarité sémantique (nomic-embed-text)
            - Sparse search : correspondance de mots-clés (BM25)
            puis fusionne les deux listes avec RRF (Reciprocal Rank Fusion).
+           Le filtre d'accès est appliqué à ce niveau — Qdrant ne retourne
+           que les documents accessibles par ce rôle avant même le reranking.
 
         2. Le Cross-Encoder reranke les résultats fusionnés pour affiner
            la pertinence au niveau de la paire (question, chunk).
 
+        Paramètres
+        ----------
+        query     : question de l'utilisateur
+        top_k     : nombre de documents à retourner après reranking
+        user_role : rôle de l'utilisateur ("public" | "student" | "staff" | "admin")
+                    Détermine quels documents sont visibles via ACCESS_LEVEL_MAP.
         """
         # Encodage de la requête sous les deux formes
         dense_vec  = self.embeddings.embed_query(query)
         sparse_vec = self._sparse_embed([query])[0]
 
-        # Requête hybride native Qdrant avec fusion RRF
+        # Filtre d'accès construit à partir du rôle utilisateur
+        access_filter = self._build_access_filter(user_role)
+
+        # Requête hybride native Qdrant avec fusion RRF + filtre d'accès
         response = self.client.query_points(
             collection_name=self.collection_name,
             prefetch=[
@@ -208,11 +266,13 @@ class QdrantManager:
                     query=dense_vec,
                     using=DENSE_VECTOR,
                     limit=top_k * 2,
+                    filter=access_filter,   # filtre appliqué dès la recherche dense
                 ),
                 Prefetch(
                     query=sparse_vec,
                     using=SPARSE_VECTOR,
                     limit=top_k * 2,
+                    filter=access_filter,   # filtre appliqué dès la recherche sparse
                 ),
             ],
             query=FusionQuery(fusion=Fusion.RRF),
@@ -228,7 +288,7 @@ class QdrantManager:
         ]
 
         logger.debug(
-            f"Hybrid search pour '{query[:60]}...' : "
+            f"Hybrid search (role={user_role}) pour '{query[:60]}' : "
             f"{len(docs)} candidats avant reranking."
         )
 
