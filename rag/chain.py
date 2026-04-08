@@ -1,5 +1,4 @@
 import os
-import open_clip
 import torch
 import base64
 from PIL import Image
@@ -14,6 +13,8 @@ from langchain_core.documents import Document
 
 from config import settings
 from data_pipeline.vectorstore import QdrantManager
+# Singleton CLIP partagé avec ingestion.py — un seul chargement par processus
+from shared_models import get_clip_model
 
 def get_llm():
     if settings.LLM_PROVIDER == "openai":
@@ -51,16 +52,20 @@ Historical Conversation:
             ("human", "{question}")
         ])
         
-        self.clip_model, _, self.clip_preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
-        self.tokenizer = open_clip.get_tokenizer('ViT-B-32')
+        # Charge CLIP ou récupère l'instance déjà en mémoire (singleton partagé)
+        self.clip_model, self.clip_preprocess, self.tokenizer = get_clip_model()
 
     def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
         return RedisChatMessageHistory(session_id, url=settings.REDIS_URL)
 
     def retrieve(self, input_dict: Dict[str, Any]) -> str:
-        query = input_dict["question"]
+        query       = input_dict["question"]
         image_base64 = input_dict.get("image_base64")
-        
+        user_role   = input_dict.get("user_role", "public")
+
+        # Filtre d'accès partagé entre recherche texte et image
+        access_filter = self.qdrant_manager._build_access_filter(user_role)
+
         docs = []
         if image_base64:
             # Multi-modal retrieval using CLIP
@@ -70,18 +75,19 @@ Historical Conversation:
                 img_tensor = self.clip_preprocess(image).unsqueeze(0)
                 with torch.no_grad():
                     img_features = self.clip_model.encode_image(img_tensor).tolist()[0]
-                    
+
                 results = self.qdrant_manager.client.search(
                     collection_name=self.qdrant_manager.collection_name,
                     query_vector=("image", img_features),
-                    limit=5
+                    query_filter=access_filter,   # filtre d'accès sur les images aussi
+                    limit=5,
                 )
                 docs = [Document(page_content=r.payload.get("page_content", ""), metadata=r.payload) for r in results]
             except Exception as e:
                 print(f"Error processing image retrieval: {e}")
-                docs = self.qdrant_manager.hybrid_search(query)
+                docs = self.qdrant_manager.hybrid_search(query, user_role=user_role)
         else:
-            docs = self.qdrant_manager.hybrid_search(query)
+            docs = self.qdrant_manager.hybrid_search(query, user_role=user_role)
             
             
         context_str = ""
@@ -118,9 +124,13 @@ Historical Conversation:
         formatted_sources = []
         for idx, doc in enumerate(input_dict.get("raw_docs", [])):
             formatted_sources.append({
-                "title": doc.metadata.get("source", f"Source {idx+1}"),
-                "url": doc.metadata.get("url", ""),
-                "score": doc.metadata.get("score", 0.0)
+                "title":        doc.metadata.get("source", f"Source {idx+1}"),
+                "url":          doc.metadata.get("url", ""),
+                "rerank_score": doc.metadata.get("rerank_score", 0.0),
+                "access_level": doc.metadata.get("access_level", "public"),
+                # Texte brut du chunk — utilisé par RAGAS pour calculer les métriques
+                # (Faithfulness, Context Precision/Recall) qui ont besoin du contenu réel.
+                "page_content": doc.page_content,
             })
         
         return {

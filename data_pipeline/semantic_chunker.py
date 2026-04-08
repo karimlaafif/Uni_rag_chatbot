@@ -58,31 +58,7 @@ def split_into_sentences(text: str) -> List[str]:
 # ---------------------------------------------------------------------------
 
 class SemanticChunker:
-    """
-    Splits text into semantically coherent chunks by detecting topic shifts
-    in the embedding space.
-
-    Parameters
-    ----------
-    model_name : str
-        A SentenceTransformer-compatible model. We use a multilingual model
-        by default so that French / Arabic / English documents are all handled.
-    breakpoint_percentile : float (0–100)
-        We compute the distribution of cosine-similarity drops between
-        consecutive sentences and cut wherever the drop is in the bottom
-        `breakpoint_percentile` percent. Higher value → more, smaller chunks.
-        Lower value → fewer, larger chunks.  Default 70 works well in practice.
-    max_chunk_chars : int
-        Hard ceiling: even within a semantic block, split if the chunk would
-        exceed this many characters.  Prevents runaway chunks.
-    min_chunk_chars : int
-        Chunks smaller than this are either merged with the next one or
-        discarded (too short to be useful for retrieval).
-    fallback_chunk_size : int
-        Chunk size used by the RecursiveCharacterTextSplitter fallback.
-    fallback_overlap : int
-        Overlap used by the fallback splitter.
-    """
+    
 
     def __init__(
         self,
