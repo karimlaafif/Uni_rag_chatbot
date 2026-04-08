@@ -1,5 +1,4 @@
 import os
-import open_clip
 import torch
 import base64
 from PIL import Image
@@ -14,6 +13,8 @@ from langchain_core.documents import Document
 
 from config import settings
 from data_pipeline.vectorstore import QdrantManager
+# Singleton CLIP partagé avec ingestion.py — un seul chargement par processus
+from shared_models import get_clip_model
 
 def get_llm():
     if settings.LLM_PROVIDER == "openai":
@@ -51,8 +52,8 @@ Historical Conversation:
             ("human", "{question}")
         ])
         
-        self.clip_model, _, self.clip_preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
-        self.tokenizer = open_clip.get_tokenizer('ViT-B-32')
+        # Charge CLIP ou récupère l'instance déjà en mémoire (singleton partagé)
+        self.clip_model, self.clip_preprocess, self.tokenizer = get_clip_model()
 
     def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
         return RedisChatMessageHistory(session_id, url=settings.REDIS_URL)
