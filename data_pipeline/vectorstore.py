@@ -79,20 +79,7 @@ class QdrantManager:
         ]
 
     def _build_access_filter(self, user_role: str) -> Filter:
-        """
-        Construit un filtre Qdrant qui restreint les résultats aux documents
-        accessibles par ce rôle.
-
-        Logique hiérarchique :
-          student → voit "public" + "student"
-          staff   → voit "public" + "student" + "staff"
-          admin   → voit tout
-
-        Si un document n'a pas de champ "access_level" dans son payload,
-        il est considéré public (aucune restriction ne s'applique à lui).
-        Le filtre utilise MatchAny pour supporter plusieurs valeurs en une
-        seule condition, ce qui est plus efficace qu'un OU chainé.
-        """
+        
         allowed_levels = ACCESS_LEVEL_MAP.get(user_role, ACCESS_LEVEL_MAP["public"])
         return Filter(
             should=[
@@ -172,14 +159,7 @@ class QdrantManager:
     # ── Ingestion ────────────────────────────────────────────────────────────
 
     def upsert_docs(self, docs: List[Document]):
-        """
-        Indexe une liste de documents dans Qdrant.
-        Pour chaque chunk on stocke :
-          - Le vecteur dense (nomic-embed-text, 768 dims)
-          - Le vecteur sparse BM25 (fastembed, dimensions creuses)
-          - Le vecteur image CLIP si le doc est une image (512 dims)
-        Les sparse vectors sont calculés en batch pour l'efficacité.
-        """
+        
         if not docs:
             return
 
@@ -231,26 +211,7 @@ class QdrantManager:
         top_k: int = 10,
         user_role: str = "public",
     ) -> List[Document]:
-        """
-        Recherche hybride en deux temps :
-
-        1. Qdrant exécute en parallèle :
-           - Dense search  : similarité sémantique (nomic-embed-text)
-           - Sparse search : correspondance de mots-clés (BM25)
-           puis fusionne les deux listes avec RRF (Reciprocal Rank Fusion).
-           Le filtre d'accès est appliqué à ce niveau — Qdrant ne retourne
-           que les documents accessibles par ce rôle avant même le reranking.
-
-        2. Le Cross-Encoder reranke les résultats fusionnés pour affiner
-           la pertinence au niveau de la paire (question, chunk).
-
-        Paramètres
-        ----------
-        query     : question de l'utilisateur
-        top_k     : nombre de documents à retourner après reranking
-        user_role : rôle de l'utilisateur ("public" | "student" | "staff" | "admin")
-                    Détermine quels documents sont visibles via ACCESS_LEVEL_MAP.
-        """
+        
         # Encodage de la requête sous les deux formes
         dense_vec  = self.embeddings.embed_query(query)
         sparse_vec = self._sparse_embed([query])[0]

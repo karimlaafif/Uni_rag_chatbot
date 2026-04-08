@@ -1,35 +1,3 @@
-"""
-=============================================================================
- ÉVALUATION RAGAS RÉELLE — benchmarks/ragas_eval.py
-=============================================================================
-Remplace l'ancienne implémentation 100% mockée par une évaluation réelle.
-
-MÉTRIQUES CALCULÉES PAR RAGAS
-──────────────────────────────
-  • Faithfulness       — La réponse n'invente rien qui ne soit pas dans les
-                         chunks récupérés ? (anti-hallucination)
-  • Answer Relevancy   — La réponse répond vraiment à la question posée ?
-  • Context Precision  — Les chunks retournés par Qdrant sont-ils utiles ?
-  • Context Recall     — Tous les faits nécessaires ont-ils été récupérés ?
-
-LATENCES MESURÉES
-──────────────────
-  • p50 (médiane), p95, p99 — sur l'ensemble du dataset, par modèle
-
-MODÈLES COMPARÉS
-──────────────────
-  Configurés dans MODELS_TO_BENCHMARK (bas du fichier).
-  Le LLM est swapé à chaud sur un seul RAGChatbot — les composants lourds
-  (CLIP, cross-encoder, Qdrant) ne sont chargés qu'une seule fois.
-
-COMMENT ÇA S'EXÉCUTE
-─────────────────────
-  Appelé en background task par FastAPI (POST /benchmark/run).
-  Tourne dans un thread pool séparé → on peut utiliser asyncio librement.
-  Résultats sauvegardés dans benchmarks/results/
-=============================================================================
-"""
-
 import asyncio
 import logging
 import os
@@ -79,18 +47,6 @@ MODELS_TO_BENCHMARK: List[Dict[str, str]] = [
     # },
 ]
 
-# =============================================================================
-#  CONFIGURATION DU LLM JUGE
-#  RAGAS utilise un LLM séparé pour évaluer Faithfulness, Context Precision
-#  et Context Recall. Ce LLM "juge" lit chaque paire (question, chunk, réponse)
-#  et décide si les critères sont respectés.
-#
-#  Options :
-#    "ollama"  → 100% offline, gratuit, utilise ta machine GPU
-#                Score légèrement moins précis qu'un LLM de référence cloud.
-#    "openai"  → meilleure précision d'évaluation, coûte ~$0.01 par question
-#                Nécessite OPENAI_API_KEY dans .env
-# =============================================================================
 
 JUDGE_PROVIDER: str = "ollama"
 JUDGE_MODEL:    str = "mistral:latest"   # modèle utilisé comme juge RAGAS
@@ -179,24 +135,7 @@ async def _run_questions_on_chatbot(
     questions: List[Dict[str, Any]],
     model_name: str,
 ) -> Tuple[List[Dict], List[float]]:
-    """
-    Exécute chaque question du dataset sur le chatbot et collecte :
-      - La réponse générée par le LLM
-      - Les chunks contexte récupérés par Qdrant (texte brut pour RAGAS)
-      - La latence de chaque appel bout-en-bout
-
-    Paramètres
-    ──────────
-    chatbot    : instance de RAGChatbot (LLM déjà configuré)
-    questions  : liste d'entrées du dataset (question + ground_truth + user_role)
-    model_name : nom du modèle (pour les logs)
-
-    Retourne
-    ────────
-    records    : liste de dicts prêts à passer à RAGAS
-                 (question, answer, contexts, ground_truth)
-    latencies  : liste des latences en millisecondes (même ordre que records)
-    """
+    
     records   = []
     latencies = []
 
@@ -269,22 +208,7 @@ async def _run_questions_on_chatbot(
 # =============================================================================
 
 def _evaluate_with_ragas(records: List[Dict]) -> Dict[str, float]:
-    """
-    Construit le dataset HuggingFace et lance l'évaluation RAGAS.
-
-    RAGAS calcule chaque métrique en utilisant le LLM juge :
-      - Faithfulness     : décompose la réponse en claims atomiques et vérifie
-                           chaque claim contre les chunks fournis.
-      - Answer Relevancy : génère des questions inverses à partir de la réponse
-                           et mesure leur similarité avec la question originale.
-      - Context Precision: pour chaque chunk récupéré, demande au juge si ce
-                           chunk est nécessaire pour répondre à la question.
-      - Context Recall   : décompose la ground_truth en faits et vérifie que
-                           chaque fait est couverts par les chunks récupérés.
-
-    Attention : cette fonction est synchrone et bloquante. Elle peut prendre
-    plusieurs minutes selon la taille du dataset et la vitesse du juge LLM.
-    """
+    
     # Construction du dataset HuggingFace (format attendu par RAGAS 0.1.x)
     dataset = Dataset.from_dict({
         "question":     [r["question"]     for r in records],
@@ -325,17 +249,7 @@ def _evaluate_with_ragas(records: List[Dict]) -> Dict[str, float]:
 # =============================================================================
 
 async def _run_full_benchmark(job_id: str, results_dict: dict) -> None:
-    """
-    Orchestre le benchmark complet de façon asynchrone :
-      1. Valide le dataset (refuse les placeholders non remplis)
-      2. Instancie un RAGChatbot partagé (charge CLIP, cross-encoder, Qdrant)
-      3. Pour chaque modèle :
-           a. Swape le LLM sur le chatbot partagé
-           b. Exécute toutes les questions → collecte réponses + contextes
-           c. Calcule les métriques RAGAS
-           d. Calcule les percentiles de latence
-      4. Sauvegarde les résultats en CSV et HTML
-    """
+    
 
     # ── 1. Validation du dataset ──────────────────────────────────────────
     questions = [
@@ -506,16 +420,7 @@ async def _run_full_benchmark(job_id: str, results_dict: dict) -> None:
 # =============================================================================
 
 def run_benchmark_task(job_id: str, results_dict: dict) -> None:
-    """
-    Entrée synchrone pour la background task FastAPI.
 
-    FastAPI exécute les background tasks synchrones dans un thread pool
-    (pas de boucle asyncio existante) → on peut créer notre propre event loop.
-
-    On crée un event loop dédié pour tout le benchmark afin que :
-      - Les appels await chatbot.achat() fonctionnent
-      - RAGAS puisse utiliser asyncio en interne si nécessaire
-    """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 

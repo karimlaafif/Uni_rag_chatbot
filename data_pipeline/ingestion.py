@@ -7,7 +7,6 @@ import aiohttp
 import docx
 from PIL import Image
 import torch
-import open_clip
 from datetime import datetime
 from langchain_core.documents import Document
 from sqlalchemy import create_engine, text
@@ -15,6 +14,8 @@ from sqlalchemy import create_engine, text
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from data_pipeline.semantic_chunker import SemanticChunker
+# Singleton CLIP partagé avec chain.py — évite de charger ~600 MB deux fois
+from shared_models import get_clip_model
 
 class DataIngestionPipeline:
     def __init__(self, qdrant_manager=None):
@@ -28,10 +29,10 @@ class DataIngestionPipeline:
             fallback_chunk_size=512,       # fallback splitter params (unchanged)
             fallback_overlap=64,
         )
-        
-        # Load CLIP for images
-        self.clip_model, _, self.clip_preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
-        self.tokenizer = open_clip.get_tokenizer('ViT-B-32')
+
+        # Réutilise l'instance CLIP déjà chargée par RAGChatbot si le serveur
+        # tourne, ou la charge pour la première fois si appelé en standalone.
+        self.clip_model, self.clip_preprocess, self.tokenizer = get_clip_model()
         
     def _hash_content(self, content: str) -> str:
         return hashlib.sha256(content.encode('utf-8')).hexdigest()
