@@ -1,17 +1,4 @@
 """
-shared_models.py — Singletons pour les modèles lourds partagés
-===============================================================
-Problème résolu : sans ce fichier, open_clip (CLIP ViT-B-32) était chargé
-deux fois en mémoire :
-  - Une fois dans RAGChatbot.__init__()  (au démarrage du serveur)
-  - Une fois dans DataIngestionPipeline.__init__()  (à chaque /knowledge/update)
-
-Sur GPU, ça représentait ~600 MB de VRAM dupliqués et risquait de déclencher
-un CUDA out-of-memory lors d'une ingestion pendant que le serveur tourne.
-
-Solution : lazy singleton — le modèle est chargé la première fois qu'il est
-demandé, puis réutilisé par tous les modules qui l'importent.
-
 Usage dans n'importe quel module :
     from shared_models import get_clip_model
 
