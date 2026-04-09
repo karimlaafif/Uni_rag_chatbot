@@ -55,6 +55,15 @@ class DataIngestionPipeline:
         doc = docx.Document(file_path)
         return "\n".join([p.text for p in doc.paragraphs])
 
+    def extract_txt(self, file_path: str) -> str:
+        # Tentative UTF-8 d'abord, fallback latin-1 pour les fichiers legacy
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except UnicodeDecodeError:
+            with open(file_path, "r", encoding="latin-1") as f:
+                return f.read()
+
     def extract_image(self, file_path: str) -> Dict[str, Any]:
         image = self.clip_preprocess(Image.open(file_path)).unsqueeze(0)
         with torch.no_grad():
@@ -107,11 +116,16 @@ class DataIngestionPipeline:
             elif ext == 'docx':
                 content = self.extract_docx(file_path)
                 return self.process_document(content, metadata)
+            elif ext == 'txt':
+                content = self.extract_txt(file_path)
+                return self.process_document(content, metadata)
             elif ext in ['jpg', 'jpeg', 'png', 'webp']:
                 image_info = self.extract_image(file_path)
                 doc = Document(page_content=f"[IMAGE:{file_path}]", metadata={**metadata, **image_info})
                 return [doc]
-            return []
+            else:
+                logger.warning(f"Extension non supportée ignorée : .{ext} ({file_path})")
+                return []
         except Exception as e:
             self.log_error(file_path, "ingest_file", str(e))
             return []
