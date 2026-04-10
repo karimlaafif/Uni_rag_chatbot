@@ -84,13 +84,23 @@ class DataIngestionPipeline:
         with open("ingestion_errors.log", "a", encoding="utf-8") as f:
             f.write(json.dumps(error_log) + "\n")
 
-    def process_document(self, content: str, metadata: Dict[str, Any]) -> List[Document]:
+    def process_document(
+        self,
+        content: str,
+        metadata: Dict[str, Any],
+        force_reindex: bool = False,
+    ) -> List[Document]:
         try:
             content = self.clean_text(content)
             content_hash = self._hash_content(content)
 
-            # Skip documents already in the vector store (delta-sync)
-            if self.qdrant_manager and self.qdrant_manager.hash_exists(content_hash):
+            # Skip documents already in the vector store (delta-sync).
+            # force_reindex=True (mode full) contourne cette vérification.
+            if (
+                not force_reindex
+                and self.qdrant_manager
+                and self.qdrant_manager.hash_exists(content_hash)
+            ):
                 return []
 
             metadata['content_hash'] = content_hash
@@ -107,19 +117,25 @@ class DataIngestionPipeline:
             self.log_error(metadata.get('source', 'unknown_source'), "process_document", str(e))
             return []
         
-    def ingest_file(self, file_path: str, metadata: Dict[str, Any]) -> List[Document]:
+    def ingest_file(
+        self,
+        file_path: str,
+        metadata: Dict[str, Any],
+        force_reindex: bool = False,
+    ) -> List[Document]:
         try:
             ext = file_path.split('.')[-1].lower()
             if ext == 'pdf':
                 content = self.extract_pdf(file_path)
-                return self.process_document(content, metadata)
+                return self.process_document(content, metadata, force_reindex)
             elif ext == 'docx':
                 content = self.extract_docx(file_path)
-                return self.process_document(content, metadata)
+                return self.process_document(content, metadata, force_reindex)
             elif ext == 'txt':
                 content = self.extract_txt(file_path)
-                return self.process_document(content, metadata)
+                return self.process_document(content, metadata, force_reindex)
             elif ext in ['jpg', 'jpeg', 'png', 'webp']:
+                # Les images sont toujours ré-indexées (pas de hash texte)
                 image_info = self.extract_image(file_path)
                 doc = Document(page_content=f"[IMAGE:{file_path}]", metadata={**metadata, **image_info})
                 return [doc]
@@ -130,9 +146,14 @@ class DataIngestionPipeline:
             self.log_error(file_path, "ingest_file", str(e))
             return []
 
-    async def ingest_url(self, url: str, metadata: Dict[str, Any]) -> List[Document]:
+    async def ingest_url(
+        self,
+        url: str,
+        metadata: Dict[str, Any],
+        force_reindex: bool = False,
+    ) -> List[Document]:
         content = await self.extract_webpage(url)
-        return self.process_document(content, metadata)
+        return self.process_document(content, metadata, force_reindex)
         
     def ingest_db(self, db_uri: str, query: str, metadata: Dict[str, Any]) -> List[Document]:
         engine = create_engine(db_uri)

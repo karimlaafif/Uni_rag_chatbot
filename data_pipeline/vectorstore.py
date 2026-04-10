@@ -7,7 +7,7 @@ from qdrant_client.models import (
     Distance, VectorParams, PointStruct,
     SparseVectorParams, SparseIndexParams, SparseVector,
     Prefetch, FusionQuery, Fusion,
-    Filter, FieldCondition, MatchValue, MatchAny,
+    Filter, FieldCondition, MatchAny,
 )
 from fastembed import SparseTextEmbedding
 from langchain_core.documents import Document
@@ -87,11 +87,6 @@ class QdrantManager:
                 FieldCondition(
                     key="access_level",
                     match=MatchAny(any=allowed_levels),
-                ),
-                # Document sans champ access_level → traité comme public
-                FieldCondition(
-                    key="access_level",
-                    match=MatchValue(value=None),
                 ),
             ]
         )
