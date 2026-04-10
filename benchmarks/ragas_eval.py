@@ -17,7 +17,7 @@ from ragas.metrics import (
     faithfulness,
 )
 
-from benchmarks.test_dataset import MANUAL_TEST_DATASET
+from data.test_dataset import MANUAL_TEST_DATASET
 from config import settings
 from rag.chain import RAGChatbot
 
@@ -28,28 +28,37 @@ logger = logging.getLogger(__name__)
 #  Modifie cette liste pour ajouter/retirer des modèles.
 # =============================================================================
 
-MODELS_TO_BENCHMARK: List[Dict[str, str]] = [
+""" MODELS_TO_BENCHMARK: List[Dict[str, str]] = [
     {
-        "name":     "Mistral 7B (Local)",
-        "provider": "ollama",
-        "model":    "mistral:latest",
+        "name":     "GPT-4o-mini",
+        "provider": "openai",
+        "model":    "gpt-4o-mini",
     },
+    # Décommente sur la machine GPU avec Ollama installé :
+    # {
+    #     "name":     "Mistral 7B (Local)",
+    #     "provider": "ollama",
+    #     "model":    "mistral:latest",
+    # },
+    # {
+    #     "name":     "Phi-3 Mini (Local)",
+    #     "provider": "ollama",
+    #     "model":    "phi3",
+    # },
+]
+JUDGE_PROVIDER: str = "openai"
+JUDGE_MODEL:    str = "gpt-4o-mini"     # modèle utilisé comme juge RAGAS """
+
+MODELS_TO_BENCHMARK = [
     {
         "name":     "Phi-3 Mini (Local)",
         "provider": "ollama",
-        "model":    "phi3",
+        "model":    "phi:latest",
     },
-    # Décommente si tu as configuré OPENAI_API_KEY dans .env :
-    # {
-    #     "name":     "GPT-4o-mini",
-    #     "provider": "openai",
-    #     "model":    "gpt-4o-mini",
-    # },
 ]
 
-
 JUDGE_PROVIDER: str = "ollama"
-JUDGE_MODEL:    str = "mistral:latest"   # modèle utilisé comme juge RAGAS
+JUDGE_MODEL:    str = "phi:latest"
 
 
 # =============================================================================
@@ -434,3 +443,38 @@ def run_benchmark_task(job_id: str, results_dict: dict) -> None:
         }
     finally:
         loop.close()
+
+
+# =============================================================================
+#  POINT D'ENTRÉE DIRECT — python -m benchmarks.ragas_eval
+# =============================================================================
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
+
+    results: dict = {}
+    job_id = "local_test"
+
+    print("\n🚀 Lancement du benchmark RAGAS en local...\n")
+    run_benchmark_task(job_id, results)
+
+    outcome = results.get(job_id, {})
+    if outcome.get("status") == "completed":
+        print("\n✅ Benchmark terminé !")
+        print(f"   Questions évaluées : {outcome['questions_evaluated']}")
+        print(f"   Juge LLM           : {outcome['judge_llm']}")
+        print("\n📊 Résultats :")
+        for row in outcome["table"]:
+            print(f"\n  Modèle : {row['Model']}")
+            print(f"    faithfulness      = {row['faithfulness']}")
+            print(f"    answer_relevancy  = {row['answer_relevancy']}")
+            print(f"    context_precision = {row['context_precision']}")
+            print(f"    context_recall    = {row['context_recall']}")
+            print(f"    quality_score     = {row['quality_score']}")
+            print(f"    p50 latency       = {row['p50_latency_ms']} ms")
+        print("\n📁 CSV + HTML sauvegardés dans benchmarks/results/")
+    else:
+        print(f"\n❌ Échec : {outcome.get('error', 'Erreur inconnue')}")
