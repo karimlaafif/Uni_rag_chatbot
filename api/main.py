@@ -1,6 +1,7 @@
 import os
 import uuid
 import aiofiles
+from datetime import datetime, timezone
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -31,6 +32,12 @@ chatbot = RAGChatbot()
 qdrant_manager = QdrantManager()
 
 BENCHMARK_RESULTS = {}
+
+# Suivi de l'état de la dernière mise à jour de la base de connaissances
+_knowledge_status = {
+    "status": "idle",
+    "last_update": None,
+}
 
 @app.post("/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
@@ -77,14 +84,24 @@ async def update_knowledge(
     }
     
     def process():
-        qdrant_manager.knowledge_update(temp_path, metadata)
-        
+        _knowledge_status["status"] = "indexing"
+        try:
+            qdrant_manager.knowledge_update(temp_path, metadata)
+            _knowledge_status["status"] = "idle"
+            _knowledge_status["last_update"] = datetime.now(timezone.utc).isoformat()
+        except Exception as e:
+            _knowledge_status["status"] = "error"
+            raise e
+
     background_tasks.add_task(process)
     return {"message": "Update queued successfully"}
 
 @app.get("/knowledge/status", response_model=KnowledgeStatusResponse)
 async def knowledge_status():
-    return KnowledgeStatusResponse(status="idle", last_update="2023-10-01T12:00:00Z")
+    return KnowledgeStatusResponse(
+        status=_knowledge_status["status"],
+        last_update=_knowledge_status["last_update"] or "jamais",
+    )
 
 @app.post("/benchmark/run", response_model=BenchmarkResponse)
 async def run_benchmark(background_tasks: BackgroundTasks):

@@ -56,7 +56,7 @@ def ingest_directory(
     source_dir: str,
     department: str,
     access_level: str,
-    mode: str,
+    force_reindex: bool,
     qdrant_manager,
     pipeline,
 ) -> int:
@@ -79,7 +79,7 @@ def ingest_directory(
         )
 
         try:
-            docs = pipeline.ingest_file(str(file_path), metadata)
+            docs = pipeline.ingest_file(str(file_path), metadata, force_reindex)
             if not docs:
                 logger.info(f"  → Skipped (already indexed or empty)")
                 continue
@@ -99,6 +99,7 @@ async def ingest_url_async(
     access_level: str,
     qdrant_manager,
     pipeline,
+    force_reindex: bool = False,
 ) -> int:
     metadata = {
         "source":       url,
@@ -107,7 +108,7 @@ async def ingest_url_async(
         "access_level": access_level,
         "doc_version":  "1.0",
     }
-    docs = await pipeline.ingest_url(url, metadata)
+    docs = await pipeline.ingest_url(url, metadata, force_reindex)
     if not docs:
         logger.info(f"URL skipped (already indexed or no content): {url}")
         return 0
@@ -146,13 +147,20 @@ def main():
         logger.error("Make sure Qdrant is running (docker compose up qdrant)")
         sys.exit(1)
 
+    force_reindex = args.mode == "full"
+    if force_reindex:
+        logger.warning(
+            "Mode FULL activé — tous les documents seront ré-indexés, "
+            "même ceux déjà présents dans Qdrant."
+        )
+
     total = 0
 
     if args.source:
         p = Path(args.source)
         if p.is_dir():
             total = ingest_directory(
-                str(p), args.department, args.access_level, args.mode,
+                str(p), args.department, args.access_level, force_reindex,
                 qdrant_manager, pipeline,
             )
         elif p.is_file():
@@ -162,7 +170,7 @@ def main():
                 access_level=args.access_level,
                 doc_version=args.doc_version,
             )
-            docs = pipeline.ingest_file(str(p), metadata)
+            docs = pipeline.ingest_file(str(p), metadata, force_reindex)
             if docs:
                 qdrant_manager.upsert_docs(docs)
                 total = len(docs)
@@ -177,7 +185,7 @@ def main():
         total += asyncio.run(
             ingest_url_async(
                 args.url, args.department, args.access_level,
-                qdrant_manager, pipeline,
+                qdrant_manager, pipeline, force_reindex,
             )
         )
 
