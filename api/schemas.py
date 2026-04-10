@@ -10,7 +10,8 @@ class ChatRequest(BaseModel):
 class SourceItem(BaseModel):
     title: Optional[str] = None
     url: Optional[str] = None
-    score: Optional[float] = None
+    rerank_score: Optional[float] = None
+    access_level: Optional[str] = None
 
 class ChatResponse(BaseModel):
     answer: str = Field(..., description="The assistant's response")
