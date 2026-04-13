@@ -1,5 +1,7 @@
 import os
+import re
 import hashlib
+import unicodedata
 from typing import List, Dict, Any, Optional
 import fitz  # PyMuPDF
 from bs4 import BeautifulSoup
@@ -16,6 +18,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from data_pipeline.semantic_chunker import SemanticChunker
 # Singleton CLIP partagé avec chain.py — évite de charger ~600 MB deux fois
 from shared_models import get_clip_model
+
+import logging
+logger = logging.getLogger(__name__)
 
 class DataIngestionPipeline:
     def __init__(self, qdrant_manager=None):
@@ -70,8 +75,82 @@ class DataIngestionPipeline:
             image_features = self.clip_model.encode_image(image)
         return {"image_vector": image_features.tolist()[0]}
 
+    # ------------------------------------------------------------------
+    # Artefacts PDF à supprimer : numéros de page, en-têtes/pieds répétitifs
+    # Adapté aux documents UIZ (FR/AR/EN)
+    # ------------------------------------------------------------------
+    _PDF_ARTIFACTS = re.compile(
+        r'^\s*('
+        r'page\s+\d+\s*(\/\s*\d+)?'       # "Page 3" ou "Page 3/47"
+        r'|\d+\s*\/\s*\d+'                 # "3/47" seul
+        r'|©.*$'                           # mentions de copyright
+        r'|université\s+ibn\s+zohr.*$'     # en-tête UIZ répété
+        r'|ibn\s+zohr\s+university.*$'
+        r'|جامعة\s+ابن\s+زهر.*$'          # en-tête en arabe
+        r'|[-–—]{3,}'                      # lignes de séparation (---/–––)
+        r')\s*$',
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+
     def clean_text(self, text: str) -> str:
+       
         return "\n".join([line.strip() for line in text.split("\n") if line.strip()])
+
+    def preprocess_text(self, text: str, source: str = "") -> str:
+        
+        if not text or not text.strip():
+            return ""
+
+        original_len = len(text)
+
+        # ── Étape 1 : Normalisation Unicode NFC ──────────────────────────
+        text = unicodedata.normalize("NFC", text)
+
+        # ── Étape 2 : Réassemblage des mots coupés par césure PDF ────────
+        # "étudi-\nant" → "étudiant"  /  "Ibn-\nZohr" → "Ibn-Zohr" (conservé)
+        text = re.sub(r'(\w)-\n(\w)', r'\1\2', text)
+
+        # ── Étape 3 : Suppression des artefacts PDF ───────────────────────
+        text = self._PDF_ARTIFACTS.sub("", text)
+
+        # ── Étape 4 : Normalisation des espaces ───────────────────────────
+        # Remplace tabs et espaces multiples/insécables par un espace simple.
+        # On travaille ligne par ligne pour ne pas toucher aux sauts de ligne.
+        lines = text.split("\n")
+        lines = [re.sub(r'[ \t\u00a0\u202f\u2009]+', ' ', line).strip() for line in lines]
+        text = "\n".join(lines)
+
+        # ── Étape 5 : Max 1 ligne vide consécutive ────────────────────────
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        # Supprimer aussi les lignes qui ne contiennent que des espaces
+        text = "\n".join(line for line in text.split("\n") if line.strip() or line == "")
+        text = text.strip()
+
+        # ── Étape 6 : Déduplication des blocs répétitifs ─────────────────
+        # On découpe en paragraphes (séparés par ligne vide) et on déduplique
+        # en préservant l'ordre d'apparition.
+        paragraphs = text.split("\n\n")
+        seen: set = set()
+        unique_paragraphs = []
+        duplicates_removed = 0
+        for para in paragraphs:
+            key = re.sub(r'\s+', ' ', para.strip().lower())
+            if key and key not in seen:
+                seen.add(key)
+                unique_paragraphs.append(para)
+            elif key in seen:
+                duplicates_removed += 1
+        text = "\n\n".join(unique_paragraphs)
+
+        final_len = len(text)
+        reduction_pct = round((1 - final_len / original_len) * 100, 1) if original_len > 0 else 0
+        logger.debug(
+            f"[preprocess] {source or 'doc'} : "
+            f"{original_len} → {final_len} chars "
+            f"({reduction_pct}% réduit, {duplicates_removed} blocs dupliqués supprimés)"
+        )
+
+        return text
 
     def log_error(self, doc_id: str, step: str, message: str):
         import json
@@ -91,7 +170,7 @@ class DataIngestionPipeline:
         force_reindex: bool = False,
     ) -> List[Document]:
         try:
-            content = self.clean_text(content)
+            content = self.preprocess_text(content, source=metadata.get("source", ""))
             content_hash = self._hash_content(content)
 
             # Skip documents already in the vector store (delta-sync).
