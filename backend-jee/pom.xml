@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>ma.uiz</groupId>
+  <artifactId>uiz-rag-backend</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+
+  <name>UIZ RAG — Backend Jakarta EE (Quarkus)</name>
+  <description>
+    Backend d'entreprise Jakarta EE pour le chatbot RAG de l'Université Ibn Zohr.
+    Gère l'authentification JWT, la sécurité RBAC, la gestion des utilisateurs,
+    et proxifie les requêtes vers le moteur Python RAG.
+  </description>
+
+  <properties>
+    <java.version>17</java.version>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- Version Quarkus — vérifier dernière LTS sur https://quarkus.io -->
+    <quarkus.platform.version>3.9.5</quarkus.platform.version>
+    <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
+    <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
+  </properties>
+
+  <!-- ── BOM Quarkus (gère toutes les versions des dépendances) ───────── -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>${quarkus.platform.group-id}</groupId>
+        <artifactId>${quarkus.platform.artifact-id}</artifactId>
+        <version>${quarkus.platform.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+
+    <!-- ── REST (JAX-RS) ────────────────────────────────────────────── -->
+    <!--
+      Équivalent de @RestController en Spring.
+      Fournit : @Path, @GET, @POST, @PUT, @DELETE, @Produces, @Consumes
+    -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-rest</artifactId>
+    </dependency>
+
+    <!--
+      Sérialisation/désérialisation JSON automatique (Jackson).
+      Équivalent de spring-boot-starter-json.
+    -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-rest-jackson</artifactId>
+    </dependency>
+
+    <!-- ── Validation (Bean Validation — Jakarta EE) ─────────────────── -->
+    <!--
+      @NotBlank, @Size, @Pattern, @Valid — exactement la même spec
+      qu'avec Spring Boot (Hibernate Validator sous le capot).
+    -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-hibernate-validator</artifactId>
+    </dependency>
+
+    <!-- ── Persistance (JPA + Panache) ───────────────────────────────── -->
+    <!--
+      Hibernate ORM = JPA standard.
+      Panache = surcouche Quarkus qui simplifie les repositories
+      (comme Spring Data JPA mais en plus explicite).
+    -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-hibernate-orm-panache</artifactId>
+    </dependency>
+
+    <!-- Driver PostgreSQL -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-jdbc-postgresql</artifactId>
+    </dependency>
+
+    <!-- ── Sécurité JWT (MicroProfile JWT — spécification Jakarta EE) ── -->
+    <!--
+      C'est LA spec Jakarta EE pour l'auth JWT.
+      Fournit : @RolesAllowed, JsonWebToken, @Claim
+      Équivalent de spring-security + jjwt en Spring Boot.
+    -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-smallrye-jwt</artifactId>
+    </dependency>
+
+    <!-- Génération des tokens JWT (côté serveur, à l'endpoint /auth/login) -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-smallrye-jwt-build</artifactId>
+    </dependency>
+
+    <!-- ── Client HTTP vers Python RAG (MicroProfile Rest Client) ───── -->
+    <!--
+      Permet d'appeler le backend Python FastAPI de façon déclarative
+      avec une interface Java annotée @RegisterRestClient.
+      Équivalent de @FeignClient (Spring Cloud) ou WebClient.
+    -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-rest-client-jackson</artifactId>
+    </dependency>
+
+    <!-- ── Health check (MicroProfile Health) ────────────────────────── -->
+    <!--
+      Expose /q/health, /q/health/ready, /q/health/live.
+      Utilisé par Docker Compose pour les healthchecks.
+    -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-smallrye-health</artifactId>
+    </dependency>
+
+    <!-- ── Swagger UI + OpenAPI ───────────────────────────────────────── -->
+    <!--
+      Génère automatiquement la documentation de tous tes endpoints JAX-RS.
+      Accessible en dev sur : http://localhost:8080/q/swagger-ui
+      Équivalent de springdoc-openapi en Spring Boot.
+    -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-smallrye-openapi</artifactId>
+    </dependency>
+
+    <!-- ── CORS ──────────────────────────────────────────────────────── -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-vertx-http</artifactId>
+    </dependency>
+
+    <!-- ── Password hashing (BCrypt) ─────────────────────────────────── -->
+    <!--
+      BcryptUtil est dans quarkus-elytron-security-common (pas dans quarkus-security).
+      Fournit : BcryptUtil.bcryptHash(), BcryptUtil.matches()
+    -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-security</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-elytron-security-common</artifactId>
+    </dependency>
+
+    <!-- ── Tests ─────────────────────────────────────────────────────── -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.rest-assured</groupId>
+      <artifactId>rest-assured</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        Plugin Quarkus Maven :
+        - mvn quarkus:dev     → hot reload (comme spring-boot:run)
+        - mvn package         → build le jar
+        - mvn package -Dnative → compile en binaire natif GraalVM (optionnel)
+      -->
+      <plugin>
+        <groupId>${quarkus.platform.group-id}</groupId>
+        <artifactId>quarkus-maven-plugin</artifactId>
+        <version>${quarkus.platform.version}</version>
+        <extensions>true</extensions>
+        <executions>
+          <execution>
+            <goals>
+              <goal>build</goal>
+              <goal>generate-code</goal>
+              <goal>generate-code-tests</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <source>17</source>
+          <target>17</target>
+          <parameters>true</parameters>
+        </configuration>
+      </plugin>
+
+    </plugins>
+  </build>
+
+</project>
