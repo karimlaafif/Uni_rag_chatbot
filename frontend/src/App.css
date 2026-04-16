@@ -1,0 +1,91 @@
+/* ── App shell ──────────────────────────────────────────────────────────── */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  height: 64px;
+  background: linear-gradient(135deg, var(--uiz-green) 0%, var(--uiz-green-mid) 100%);
+  color: white;
+  box-shadow: var(--uiz-shadow-md);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-title {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.header-main {
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+.header-sub {
+  font-size: 0.73rem;
+  opacity: 0.85;
+  font-weight: 400;
+}
+
+/* ── Navigation tabs ─────────────────────────────────────────────────────── */
+.header-nav {
+  display: flex;
+  gap: 0.25rem;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 0.6rem;
+  padding: 0.2rem;
+}
+
+.nav-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: rgba(255,255,255,0.8);
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: background 0.2s, color 0.2s;
+}
+
+.nav-tab:hover {
+  background: rgba(255,255,255,0.15);
+  color: white;
+}
+
+.nav-tab.active {
+  background: white;
+  color: var(--uiz-green);
+}
+
+/* ── Main content ────────────────────────────────────────────────────────── */
+.app-main {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
