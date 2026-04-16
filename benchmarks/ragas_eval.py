@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 JUDGE_PROVIDER: str = "openai"
 JUDGE_MODEL:    str = "gpt-4o-mini"     # modèle utilisé comme juge RAGAS """
 
-MODELS_TO_BENCHMARK = [
+""" MODELS_TO_BENCHMARK = [
     {
         "name":     "Phi-3 Mini (Local)",
         "provider": "ollama",
@@ -58,7 +58,17 @@ MODELS_TO_BENCHMARK = [
 ]
 
 JUDGE_PROVIDER: str = "ollama"
-JUDGE_MODEL:    str = "phi:latest"
+JUDGE_MODEL:    str = "phi:latest" """
+
+MODELS_TO_BENCHMARK = [
+    {
+        "name":     "Mistral 7B (4x T1000)",
+        "provider": "vllm",
+        "model":    "mistralai/Mistral-7B-Instruct-v0.2",
+    },
+]
+JUDGE_PROVIDER: str = "vllm"
+JUDGE_MODEL:    str = "mistralai/Mistral-7B-Instruct-v0.2"
 
 
 # =============================================================================
@@ -85,6 +95,15 @@ def _build_llm(provider: str, model: str):
                 "ANTHROPIC_API_KEY manquante dans .env pour utiliser le provider 'anthropic'."
             )
         return ChatAnthropic(temperature=0, model=model)
+    
+    elif provider == "vllm":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=model,
+            base_url="http://192.168.1.10:8001/v1",  
+            api_key="dummy",   
+            temperature=0,
+        )
 
     else:  # ollama (défaut)
         from langchain_community.chat_models import ChatOllama
