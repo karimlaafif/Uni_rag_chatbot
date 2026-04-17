@@ -1,6 +1,63 @@
 version: '3.8'
 
 services:
+  # ── Frontend React (nginx en prod) ───────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend_jee
+    restart: unless-stopped
+
+  # ── Backend JEE (Quarkus) — Auth JWT, RBAC, gestion utilisateurs ─────────
+  backend_jee:
+    build:
+      context: ./backend-jee
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      # Base de données utilisateurs
+      - DB_HOST=postgres
+      - DB_NAME=uiz_users
+      - DB_USER=uiz_admin
+      - DB_PASS=uiz_secret
+      # URL du moteur RAG Python (interne, non exposé)
+      - RAG_ENGINE_URL=http://fastapi_app:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      fastapi_app:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/q/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+
+  # ── Base de données utilisateurs (PostgreSQL) ─────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=uiz_users
+      - POSTGRES_USER=uiz_admin
+      - POSTGRES_PASSWORD=uiz_secret
+    ports:
+      - "5432:5432"   # exposé en dev pour pgAdmin, à fermer en prod
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uiz_admin -d uiz_users"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Moteur RAG Python (FastAPI) — INTERNE, non exposé directement ─────────
   fastapi_app:
     build: .
     ports:
@@ -59,3 +116,4 @@ volumes:
   qdrant_data:
   ollama_data:
   redis_data:
+  postgres_data:
