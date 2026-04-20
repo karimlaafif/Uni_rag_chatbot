@@ -142,14 +142,18 @@ class QdrantManager:
 
     def hash_exists(self, content_hash: str) -> bool:
         """Retourne True si un document avec ce hash SHA-256 est déjà indexé."""
-        records, _ = self.client.scroll(
-            collection_name=self.collection_name,
-            scroll_filter=Filter(
-                must=[FieldCondition(key="content_hash", match=MatchValue(value=content_hash))]
-            ),
-            limit=1,
-        )
-        return len(records) > 0
+        try:
+            records, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=Filter(
+                    must=[FieldCondition(key="content_hash", match=MatchValue(value=content_hash))]
+                ),
+                limit=1,
+            )
+            return len(records) > 0
+        except Exception:
+            # La collection n'existe pas encore → le document n'est pas indexé
+            return False
 
     # ── Ingestion ────────────────────────────────────────────────────────────
 
