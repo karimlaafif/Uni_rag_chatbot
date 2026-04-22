@@ -23,6 +23,17 @@ def get_llm():
     elif settings.LLM_PROVIDER == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(temperature=0, model="claude-3-haiku-20240307")
+    elif settings.LLM_PROVIDER == "vllm":
+        # vLLM expose une API compatible OpenAI — on réutilise ChatOpenAI
+        # avec une base_url pointant vers le serveur vLLM (ex: machine GPU)
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=settings.OLLAMA_MODEL,
+            base_url=settings.OLLAMA_BASE_URL,
+            api_key="dummy",  # vLLM n'exige pas de vraie clé API
+            temperature=0.1,
+            max_tokens=512,   # limite la génération pour des réponses rapides
+        )
     else:
         # Default to Ollama
         from langchain_community.chat_models import ChatOllama
