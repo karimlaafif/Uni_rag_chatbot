@@ -207,7 +207,7 @@ class QdrantManager:
     def hybrid_search(
         self,
         query: str,
-        top_k: int = 10,
+        top_k: int = 5,
         user_role: str = "public",
     ) -> List[Document]:
         
@@ -252,7 +252,9 @@ class QdrantManager:
             f"{len(docs)} candidats avant reranking."
         )
 
-        return self.rerank(query, docs, top_k)
+        # Reranking désactivé temporairement pour améliorer la vitesse
+        # return self.rerank(query, docs, top_k)
+        return docs[:top_k]
 
     # ── Reranking ────────────────────────────────────────────────────────────
 
